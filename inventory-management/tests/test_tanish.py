@@ -80,3 +80,112 @@ def test_delete_supplier(client):
 
     retrieved = client.get(f"/suppliers/{supplier_id}")
     assert retrieved.status_code == 404
+
+
+
+def test_supplier_products(client):
+    supplier = client.post("/suppliers", json={
+        "name": "Hardware Supplier",
+        "contact_email": "hardware@example.com"
+    }).get_json()
+
+    product = client.post("/products", json={
+        "name": "Keyboard",
+        "sku": "KB-001",
+        "unit_price": 25,
+        "quantity_on_hand": 10,
+        "reorder_level": 3
+    }).get_json()
+
+    transaction = client.post("/transactions", json={
+        "product_id": product["id"],
+        "supplier_id": supplier["id"],
+        "type": "IN",
+        "quantity": 5
+    })
+
+    assert transaction.status_code == 201
+
+    response = client.get(
+        f"/suppliers/{supplier['id']}/products"
+    )
+
+    assert response.status_code == 200
+    products = response.get_json()
+
+    assert len(products) == 1
+    assert products[0]["id"] == product["id"]
+    
+
+def test_filter_transactions_by_supplier(client):
+    supplier_a = client.post("/suppliers", json={
+        "name": "Supplier A",
+        "contact_email": "a@example.com"
+    }).get_json()
+
+    supplier_b = client.post("/suppliers", json={
+        "name": "Supplier B",
+        "contact_email": "b@example.com"
+    }).get_json()
+
+    product = client.post("/products", json={
+        "name": "Mouse",
+        "sku": "MS-001"
+    }).get_json()
+
+    for supplier in (supplier_a, supplier_b):
+        response = client.post("/transactions", json={
+            "product_id": product["id"],
+            "supplier_id": supplier["id"],
+            "type": "IN",
+            "quantity": 5
+        })
+        assert response.status_code == 201
+
+    response = client.get(
+        f"/transactions?supplier_id={supplier_a['id']}"
+    )
+
+    assert response.status_code == 200
+    results = response.get_json()
+
+    assert len(results) == 1
+    assert results[0]["supplier_id"] == supplier_a["id"]
+    
+
+def test_filter_transactions_by_product(client):
+    supplier = client.post("/suppliers", json={
+        "name": "Supplier A",
+        "contact_email": "a@example.com"
+    }).get_json()
+
+    first_product = client.post("/products", json={
+        "name": "Keyboard",
+        "sku": "KB-001"
+    }).get_json()
+
+    second_product = client.post("/products", json={
+        "name": "Mouse",
+        "sku": "MS-001"
+    }).get_json()
+
+    for product in (first_product, second_product):
+        response = client.post("/transactions", json={
+            "product_id": product["id"],
+            "supplier_id": supplier["id"],
+            "type": "IN",
+            "quantity": 5
+        })
+        assert response.status_code == 201
+
+    response = client.get(
+        f"/transactions?product_id={second_product['id']}"
+    )
+
+    assert response.status_code == 200
+    results = response.get_json()
+
+    assert len(results) == 1
+    assert results[0]["product_id"] == second_product["id"]
+
+ 
