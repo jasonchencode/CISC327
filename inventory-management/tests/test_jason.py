@@ -164,3 +164,100 @@ def test_identify_low_stock_products(client):
     assert "Low Stock" in names
     assert "Out of Stock" in names
     assert "Healthy Stock" not in names
+
+
+
+def test_record_stock_movement(client):
+    # Create a product with 10 units in stock
+    product_response = client.post("/products", json={
+        "name": "Test Product",
+        "sku": "TEST-001",
+        "quantity_on_hand": 10,
+        "reorder_level": 2
+    })
+
+    product_id = product_response.get_json()["id"]
+
+    # Record stock coming in
+    in_response = client.post("/transactions", json={
+        "product_id": product_id,
+        "type": "IN",
+        "quantity": 5
+    })
+
+    assert in_response.status_code == 201
+    assert in_response.get_json()["type"] == "IN"
+    assert in_response.get_json()["quantity"] == 5
+
+    # Verify inventory increased from 10 to 15
+    stock_response = client.get(f"/products/{product_id}/stock-level")
+    assert stock_response.get_json()["quantity_on_hand"] == 15
+
+    # Record stock going out
+    out_response = client.post("/transactions", json={
+        "product_id": product_id,
+        "type": "OUT",
+        "quantity": 3
+    })
+
+    assert out_response.status_code == 201
+
+    # Verify inventory decreased from 15 to 12
+    stock_response = client.get(f"/products/{product_id}/stock-level")
+    assert stock_response.get_json()["quantity_on_hand"] == 12
+
+    # Verify both transactions were recorded
+    transactions_response = client.get("/transactions")
+    transactions = transactions_response.get_json()
+
+    assert len(transactions) == 2
+    assert [t["type"] for t in transactions] == ["IN", "OUT"]
+
+
+def test_receive_purchase_order(client):
+    # Create a supplier
+    supplier_response = client.post("/suppliers", json={
+        "name": "Test Supplier",
+        "contact_email": "supplier@test.com"
+    })
+    assert supplier_response.status_code == 201
+    supplier_id = supplier_response.get_json()["id"]
+
+    # Create a product with 10 units in stock
+    product_response = client.post("/products", json={
+        "name": "Test Product",
+        "sku": "TEST-001",
+        "quantity_on_hand": 10,
+        "reorder_level": 2
+    })
+    assert product_response.status_code == 201
+    product_id = product_response.get_json()["id"]
+
+    # Create a purchase order for 5 additional units
+    po_response = client.post("/purchase-orders", json={
+        "supplier_id": supplier_id,
+        "product_id": product_id,
+        "quantity_ordered": 5
+    })
+    assert po_response.status_code == 201
+    po_id = po_response.get_json()["id"]
+    assert po_response.get_json()["status"] == "pending"
+
+    # Receive the purchase order
+    receive_response = client.put(f"/purchase-orders/{po_id}/receive")
+    assert receive_response.status_code == 200
+    assert receive_response.get_json()["status"] == "received"
+
+    # Verify inventory increased from 10 to 15
+    stock_response = client.get(f"/products/{product_id}/stock-level")
+    assert stock_response.get_json()["quantity_on_hand"] == 15
+
+    # Verify an IN transaction was recorded
+    transactions_response = client.get("/transactions")
+    transactions = transactions_response.get_json()
+
+    assert len(transactions) == 1
+    assert transactions[0]["product_id"] == product_id
+    assert transactions[0]["supplier_id"] == supplier_id
+    assert transactions[0]["type"] == "IN"
+    assert transactions[0]["quantity"] == 5
