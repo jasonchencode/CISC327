@@ -261,3 +261,42 @@ def test_receive_purchase_order(client):
     assert transactions[0]["supplier_id"] == supplier_id
     assert transactions[0]["type"] == "IN"
     assert transactions[0]["quantity"] == 5
+
+
+def test_receive_purchase_order_updates_inventory_only_once(client):
+    # Create a supplier
+    supplier_response = client.post("/suppliers", json={
+        "name": "Test Supplier",
+        "contact_email": "supplier@test.com"
+    })
+    supplier_id = supplier_response.get_json()["id"]
+
+    # Create a product with 10 units
+    product_response = client.post("/products", json={
+        "name": "Test Product",
+        "sku": "TEST-001",
+        "unit_price": 10.0,
+        "quantity_on_hand": 10,
+        "reorder_level": 2
+    })
+    product_id = product_response.get_json()["id"]
+
+    # Create a purchase order for 5 units
+    po_response = client.post("/purchase-orders", json={
+        "supplier_id": supplier_id,
+        "product_id": product_id,
+        "quantity_ordered": 5
+    })
+    po_id = po_response.get_json()["id"]
+
+    # Receive the purchase order
+    first_response = client.put(f"/purchase-orders/{po_id}/receive")
+    assert first_response.status_code == 200
+
+    # Attempt to receive the same purchase order again
+    second_response = client.put(f"/purchase-orders/{po_id}/receive")
+    assert second_response.status_code == 400
+
+    # Verify inventory was only increased once
+    stock_response = client.get(f"/products/{product_id}/stock-level")
+    assert stock_response.get_json()["quantity_on_hand"] == 15
