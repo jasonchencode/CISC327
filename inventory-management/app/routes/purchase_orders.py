@@ -75,4 +75,10 @@ def receive_purchase_order(po_id):
     # A test that receives a PO and then checks /products/<id>/stock-level
     # will see the stock unchanged despite the transaction appearing in /transactions.
 
+
+    store.transactions[transaction_id] = transaction
+
+    # Update inventory to reflect the received stock.
+    store.products[po.product_id].quantity_on_hand += po.quantity_ordered
+
     return jsonify(po.to_dict())
