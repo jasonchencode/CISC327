@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 
 from app import store
 from app.models.product import Product
+from app.models.reconciliation import Reconciliation
 
 products_bp = Blueprint("products", __name__, url_prefix="/products")
 
@@ -73,3 +74,60 @@ def stock_level(product_id):
     if product is None:
         return jsonify({"error": "Product not found"}), 404
     return jsonify({"product_id": product.id, "quantity_on_hand": product.quantity_on_hand})
+
+
+@products_bp.route(
+    "/<int:product_id>/reconcile",
+    methods=["POST"]
+)
+def reconcile_product(product_id):
+    product = store.products.get(product_id)
+
+    if product is None:
+        return jsonify({"error": "Product not found"}), 404
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({
+            "error": "A JSON object is required"
+        }), 400
+
+    physical_quantity = data.get("physical_quantity")
+
+    if (
+        type(physical_quantity) is not int
+        or physical_quantity < 0
+    ):
+        return jsonify({
+            "error": "physical_quantity must be a nonnegative integer"
+        }), 400
+
+    reconciliation = Reconciliation(
+        id=store.next_id("reconciliation"),
+        product_id=product_id,
+        previous_quantity=product.quantity_on_hand,
+        physical_quantity=physical_quantity,
+    )
+
+    product.quantity_on_hand = physical_quantity
+    store.reconciliations[reconciliation.id] = reconciliation
+
+    return jsonify(reconciliation.to_dict()), 201
+
+
+@products_bp.route(
+    "/<int:product_id>/reconciliations",
+    methods=["GET"]
+)
+def list_product_reconciliations(product_id):
+    if product_id not in store.products:
+        return jsonify({"error": "Product not found"}), 404
+
+    records = [
+        record.to_dict()
+        for record in store.reconciliations.values()
+        if record.product_id == product_id
+    ]
+
+    return jsonify(records), 200
