@@ -300,3 +300,102 @@ def test_get_nonexistent_purchase_order(client):
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "Purchase order not found"
+
+
+def test_reconcile_inventory_decrease(client):
+    product = client.post("/products", json={
+        "name": "Keyboard",
+        "sku": "REC-001",
+        "quantity_on_hand": 50
+    }).get_json()
+
+    response = client.post(
+        f"/products/{product['id']}/reconcile",
+        json={"physical_quantity": 47}
+    )
+
+    assert response.status_code == 201
+    record = response.get_json()
+
+    assert record["previous_quantity"] == 50
+    assert record["physical_quantity"] == 47
+    assert record["adjustment"] == -3
+
+    stock = client.get(
+        f"/products/{product['id']}/stock-level"
+    )
+    assert stock.get_json()["quantity_on_hand"] == 47
+
+
+def test_reconcile_inventory_increase_and_history(client):
+    product = client.post("/products", json={
+        "name": "Mouse",
+        "sku": "REC-002",
+        "quantity_on_hand": 10
+    }).get_json()
+
+    url = f"/products/{product['id']}/reconcile"
+
+    first = client.post(url, json={"physical_quantity": 15})
+    second = client.post(url, json={"physical_quantity": 12})
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    history = client.get(
+        f"/products/{product['id']}/reconciliations"
+    )
+
+    assert history.status_code == 200
+    records = history.get_json()
+
+    assert len(records) == 2
+    assert records[0]["adjustment"] == 5
+    assert records[1]["adjustment"] == -3
+    assert records[1]["previous_quantity"] == 15
+
+    stock = client.get(
+        f"/products/{product['id']}/stock-level"
+    )
+    assert stock.get_json()["quantity_on_hand"] == 12
+
+
+def test_reconcile_rejects_invalid_quantity(client):
+    product = client.post("/products", json={
+        "name": "Monitor",
+        "sku": "REC-003",
+        "quantity_on_hand": 20
+    }).get_json()
+
+    url = f"/products/{product['id']}/reconcile"
+
+    for invalid in [-1, 2.5, "10", True, None]:
+        response = client.post(
+            url,
+            json={"physical_quantity": invalid}
+        )
+        assert response.status_code == 400
+
+    stock = client.get(
+        f"/products/{product['id']}/stock-level"
+    )
+    assert stock.get_json()["quantity_on_hand"] == 20
+
+    history = client.get(
+        f"/products/{product['id']}/reconciliations"
+    )
+    assert history.get_json() == []
+
+
+def test_reconcile_nonexistent_product(client):
+    response = client.post(
+        "/products/999/reconcile",
+        json={"physical_quantity": 10}
+    )
+
+    assert response.status_code == 404
+
+    history = client.get(
+        "/products/999/reconciliations"
+    )
+    assert history.status_code == 404
