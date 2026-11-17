@@ -102,5 +102,25 @@ Reconciliation records are stored in memory and are lost when the application re
 ## Tests
 
 ```bash
-pytest
+python -m pytest
 ```
+
+## Low-stock notification (Assignment 3)
+
+`POST /transactions` sends a simulated notification for each `OUT` movement
+that leaves stock at or below the product's `reorder_level`, including when
+stock was already low. The recipient is the demonstration staff address
+`inventory@example.com`; the subject is `Low stock alert`. The message includes
+the product name, SKU, remaining quantity, and reorder level.
+
+The response includes `notification_sent`: `true` when the simulator succeeds,
+and `false` when sending fails or the conditions do not trigger a notification.
+A failed notification does not undo the stock update or transaction; the API
+still returns HTTP 201. Incoming movements do not trigger notifications.
+This integration applies to the JSON API; the separate HTML transaction form
+keeps its existing behavior.
+
+`notification_service.py` sits beside `run.py`, outside coverage scope `app/`.
+Its Inventory customization prefixes recorded subjects with `[Inventory]` and
+rejects recipients without `@`. It makes no network calls.
+In tests, patch `app.routes.transactions.send_notification`.
